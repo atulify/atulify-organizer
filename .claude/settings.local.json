@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rustc:*)",
+      "Bash(cargo:*)",
+      "Bash(xcode-select:*)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(cat:*)",
+      "Bash(tree:*)",
+      "Bash(lsof:*)",
+      "Bash(xargs kill -9:*)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:bughunt.quick.shopify.io)",
+      "Bash(npx tsc:*)",
+      "Bash(rustup target add:*)",
+      "Bash(npm run tauri:*)",
+      "Bash(pgrep:*)",
+      "Bash(log show:*)",
+      "Bash(curl:*)",
+      "Bash(gh api:*)",
+      "Bash(gh auth status:*)",
+      "Bash(pkill:*)",
+      "Bash(devx --help:*)",
+      "Bash(echo:*)",
+      "Bash(command wcd:*)",
+      "Bash(/Users/atulify/.local/state/tec/profiles/base/current/global/init zsh)",
+      "Bash(env)",
+      "Bash(npm run typecheck:*)",
+      "Bash(iconutil:*)",
+      "Bash(/bin/rm:*)",
+      "Bash(git init:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

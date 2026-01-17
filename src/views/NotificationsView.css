@@ -1,0 +1,249 @@
+/* Notifications View Styles */
+
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.notification-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  transition: border-color var(--transition-fast),
+              opacity var(--transition-fast);
+}
+
+.notification-card:hover {
+  border-color: var(--border-secondary);
+}
+
+.notification-card.disabled {
+  opacity: 0.5;
+}
+
+.notification-card.past {
+  border-color: var(--text-tertiary);
+  background-color: var(--bg-tertiary);
+}
+
+/* Toggle Switch */
+.notification-toggle {
+  flex-shrink: 0;
+}
+
+.toggle-btn {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  transition: background-color var(--transition-fast);
+}
+
+.toggle-btn.off {
+  background-color: var(--bg-tertiary);
+}
+
+.toggle-btn.on {
+  background-color: var(--accent-primary);
+}
+
+.toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background-color: white;
+  border-radius: 50%;
+  transition: transform var(--transition-fast);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-btn.on .toggle-knob {
+  transform: translateX(20px);
+}
+
+/* Content */
+.notification-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-title {
+  font-size: var(--text-base);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.notification-message {
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.notification-schedule {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.schedule-type {
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.schedule-type.one_off {
+  background-color: var(--accent-subtle);
+  color: var(--accent-primary);
+}
+
+.schedule-type.daily_weekdays {
+  background-color: #38A16920;
+  color: #38A169;
+}
+
+.schedule-type.weekly {
+  background-color: #3182CE20;
+  color: #3182CE;
+}
+
+.notification-past-badge {
+  display: inline-block;
+  font-size: var(--text-xs);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background-color: var(--text-tertiary);
+  color: var(--bg-primary);
+}
+
+/* Actions */
+.notification-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.notification-card:hover .notification-actions {
+  opacity: 1;
+}
+
+.notification-action-btn {
+  font-size: var(--text-xs);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all var(--transition-fast);
+}
+
+.notification-action-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.notification-action-btn.danger:hover {
+  background-color: var(--error-bg);
+  color: var(--error);
+}
+
+/* Form */
+.notification-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.notification-form .form-textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+
+/* Schedule Type Buttons */
+.schedule-type-buttons {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-sm);
+}
+
+.schedule-type-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--space-md);
+  background-color: var(--bg-tertiary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-primary);
+}
+
+.schedule-type-btn:hover {
+  border-color: var(--border-secondary);
+}
+
+.schedule-type-btn.active {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-subtle);
+}
+
+.schedule-type-desc {
+  font-size: var(--text-xs);
+  font-weight: var(--font-normal);
+  color: var(--text-tertiary);
+}
+
+/* Day of Week Buttons */
+.day-of-week-buttons {
+  display: flex;
+  gap: var(--space-xs);
+}
+
+.day-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: var(--font-medium);
+  background-color: var(--bg-tertiary);
+  border: 2px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.day-btn:hover {
+  border-color: var(--border-secondary);
+  color: var(--text-primary);
+}
+
+.day-btn.active {
+  border-color: var(--accent-primary);
+  background-color: var(--accent-primary);
+  color: var(--bg-primary);
+}

@@ -1,0 +1,70 @@
+.navigation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  -webkit-app-region: drag;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  -webkit-app-region: no-drag;
+}
+
+.nav-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-fast),
+              color var(--transition-fast);
+  color: var(--text-secondary);
+}
+
+.nav-tab:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-tab.active {
+  background-color: var(--accent-bg);
+  color: var(--accent-primary);
+}
+
+.nav-tab.active:hover {
+  background-color: var(--accent-bg-hover);
+}
+
+.nav-label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+}
+
+.nav-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  transition: background-color var(--transition-fast);
+  color: var(--text-secondary);
+  -webkit-app-region: no-drag;
+}
+
+.nav-menu-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.menu-dots {
+  font-size: var(--text-lg);
+  font-weight: var(--font-bold);
+  letter-spacing: 1px;
+  line-height: 1;
+  transform: rotate(90deg);
+}

@@ -1,0 +1,42 @@
+[package]
+name = "atulify"
+version = "1.0.0"
+description = "Personal organizer for tracking work, brag docs, and notifications"
+authors = ["atulify"]
+edition = "2021"
+
+[lib]
+name = "atulify_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset", "tray-icon", "macos-private-api"] }
+tauri-plugin-opener = "2"
+tauri-plugin-process = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+dirs = "5"
+once_cell = "1.19"
+parking_lot = "0.12"
+
+[profile.release]
+# Optimize for size
+opt-level = "s"
+# Enable link-time optimization for smaller binary
+lto = true
+# Use single codegen unit for better optimization
+codegen-units = 1
+# Strip debug symbols
+strip = "symbols"
+# Abort on panic (smaller binary, no unwinding)
+panic = "abort"
