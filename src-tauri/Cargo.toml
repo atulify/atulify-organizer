@@ -1,6 +1,6 @@
 [package]
 name = "atulify"
-version = "1.0.0"
+version = "1.0.1"
 description = "Personal organizer for tracking work, brag docs, and notifications"
 authors = ["atulify"]
 edition = "2021"

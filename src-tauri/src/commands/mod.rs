@@ -251,6 +251,27 @@ pub fn get_app_data_path() -> Result<String, String> {
 
 #[tauri::command]
 pub fn run_code_review(url: String) -> Result<(), String> {
+    // Extract repo name and PR number from URL (e.g., https://github.com/owner/repo/pull/123)
+    let parts: Vec<&str> = url.split('/').collect();
+    let (repo_name, pr_number) = if parts.len() >= 2 {
+        let pr_num = parts.last().unwrap_or(&"unknown");
+        // Get repo name (2 positions before "pull")
+        let repo = parts.iter()
+            .position(|&p| p == "pull")
+            .and_then(|i| if i > 0 { parts.get(i - 1) } else { None })
+            .unwrap_or(&"repo");
+        (*repo, *pr_num)
+    } else {
+        ("repo", "unknown")
+    };
+
+    // Save to Obsidian vault for proper indexing
+    let vault_path = "/Users/atulify/Documents/Obsidian/atul";
+    let output_dir = format!("{}/pr-reviews", vault_path);
+    let file_name = format!("{}-{}", repo_name, pr_number);
+    let output_file = format!("{}/{}.md", output_dir, file_name);
+    let obsidian_uri = format!("obsidian://open?vault=atul&file=pr-reviews/{}", file_name);
+
     let script = format!(
         r#"tell application "Terminal"
             set targetWindow to missing value
@@ -274,15 +295,18 @@ pub fn run_code_review(url: String) -> Result<(), String> {
                     end tell
                 end tell
                 delay 0.3
-                do script "devx claude -p \"/review {}\" --max-budget-usd 2.00" in front window
+                do script "mkdir -p \"{output_dir}\" && devx claude -p \"/review {url}\" --max-budget-usd 2.00 | tee \"{output}\" && open \"{obsidian_uri}\"" in front window
             else
                 activate
-                do script "devx claude -p \"/review {}\" --max-budget-usd 2.00"
+                do script "mkdir -p \"{output_dir}\" && devx claude -p \"/review {url}\" --max-budget-usd 2.00 | tee \"{output}\" && open \"{obsidian_uri}\""
                 delay 0.3
                 set custom title of front window to "Claude Code Review"
             end if
         end tell"#,
-        url, url
+        url = url,
+        output_dir = output_dir,
+        output = output_file,
+        obsidian_uri = obsidian_uri
     );
 
     Command::new("osascript")
