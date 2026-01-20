@@ -1,9 +1,25 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button } from '../components';
+import { listen } from '@tauri-apps/api/event';
+import { Button, ProgressCircle } from '../components';
 import type { usePrData, GitHubPr } from '../hooks/usePrData';
 import './Views.css';
 import './PrsView.css';
+
+// LRU limit for completed reviews map
+const MAX_COMPLETED_REVIEWS = 50;
+
+interface CodeReviewCompleted {
+  url: string;
+  output_file: string;
+  success: boolean;
+  error: string | null;
+}
+
+interface ReviewInProgress {
+  url: string;
+  startTime: number;
+}
 
 interface MyPrsViewProps {
   prData: ReturnType<typeof usePrData>;
@@ -21,6 +37,34 @@ export function MyPrsView({ prData }: MyPrsViewProps) {
   } = prData;
 
   const [collapsedSections, setCollapsedSections] = useState<Set<PrioritySection>>(new Set());
+  const [reviewInProgress, setReviewInProgress] = useState<ReviewInProgress | null>(null);
+  const [completedReviews, setCompletedReviews] = useState<Map<string, string>>(new Map());
+
+  // Listen for code review completion events
+  useEffect(() => {
+    const unlisten = listen<CodeReviewCompleted>('code-review::completed', (event) => {
+      const { url, output_file, success, error } = event.payload;
+      setReviewInProgress(null);
+      if (success) {
+        // Store the output file path with LRU bounding
+        setCompletedReviews((prev) => {
+          const newMap = new Map(prev);
+          if (newMap.size >= MAX_COMPLETED_REVIEWS) {
+            const oldestKey = newMap.keys().next().value;
+            if (oldestKey) newMap.delete(oldestKey);
+          }
+          newMap.set(url, output_file);
+          return newMap;
+        });
+      } else if (error) {
+        console.error('Code review failed:', error);
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Toggle section collapse
   const toggleSection = (section: PrioritySection) => {
@@ -37,11 +81,20 @@ export function MyPrsView({ prData }: MyPrsViewProps) {
 
   // Handle Claude button click for a PR
   const handleCodeReview = async (pr: GitHubPr) => {
+    setReviewInProgress({ url: pr.url, startTime: Date.now() });
     try {
       await invoke('run_code_review', { url: pr.url });
     } catch (err) {
       console.error('Failed to run code review:', err);
+      setReviewInProgress(null);
     }
+  };
+
+  // Open completed review in Obsidian
+  const openReview = (outputFile: string) => {
+    const fileName = outputFile.split('/').pop()?.replace('.md', '') || '';
+    const obsidianUri = `obsidian://open?vault=atul&file=pr-reviews/${fileName}`;
+    window.open(obsidianUri, '_blank');
   };
 
   // Format relative time
@@ -62,21 +115,38 @@ export function MyPrsView({ prData }: MyPrsViewProps) {
     }
   };
 
-  // Render a PR card with Claude button
+  // Render a PR card
   const renderPrCard = (pr: GitHubPr) => {
+    const isReviewing = reviewInProgress?.url === pr.url;
+    const completedReviewFile = completedReviews.get(pr.url);
+
     return (
       <div key={pr.number} className="pr-card">
         <button
-          className="pr-claude-btn"
+          className={`pr-claude-btn ${isReviewing ? 'reviewing' : ''}`}
           onClick={() => handleCodeReview(pr)}
           aria-label="Run code review"
-          title="Run code review in terminal"
+          title={isReviewing ? 'Review in progress...' : 'Run code review'}
+          disabled={isReviewing}
         >
-          <img src="/claude.png" alt="Claude" className="claude-icon" />
+          {isReviewing && reviewInProgress ? (
+            <ProgressCircle startTime={reviewInProgress.startTime} size="sm" />
+          ) : (
+            <img src="/claude.png" alt="Claude" className="claude-icon" />
+          )}
         </button>
         <div className="pr-card-content">
           <div className="pr-card-header">
             <span className="pr-card-title">{pr.title}</span>
+            {completedReviewFile && (
+              <button
+                className="pr-review-link"
+                onClick={() => openReview(completedReviewFile)}
+                title="Open review in Obsidian"
+              >
+                View Review
+              </button>
+            )}
           </div>
           <div className="pr-card-meta">
             <a href={pr.url} target="_blank" rel="noopener noreferrer" className="pr-card-link">

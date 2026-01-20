@@ -1,10 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { Button, Modal } from '../components';
+import { listen } from '@tauri-apps/api/event';
+import { Button, Modal, ProgressCircle } from '../components';
 import type { AppData, ViewType, Task } from '../types';
 import type { usePrData, GitHubPr } from '../hooks/usePrData';
 import './Views.css';
 import './TodayView.css';
+
+// LRU limit for completed reviews map
+const MAX_COMPLETED_REVIEWS = 50;
+
+interface CodeReviewCompleted {
+  url: string;
+  output_file: string;
+  success: boolean;
+  error: string | null;
+}
+
+interface ReviewInProgress {
+  url: string;
+  startTime: number;
+}
 
 interface TodayViewProps {
   data: AppData;
@@ -17,8 +33,36 @@ export function TodayView({ data, onDataChange, onNavigate, prData }: TodayViewP
   const [showQuickTask, setShowQuickTask] = useState(false);
   const [quickTaskTitle, setQuickTaskTitle] = useState('');
   const [codeReviewsCollapsed, setCodeReviewsCollapsed] = useState(false);
+  const [reviewInProgress, setReviewInProgress] = useState<ReviewInProgress | null>(null);
+  const [completedReviews, setCompletedReviews] = useState<Map<string, string>>(new Map());
 
   const { prReviews, myPrs } = prData;
+
+  // Listen for code review completion events
+  useEffect(() => {
+    const unlisten = listen<CodeReviewCompleted>('code-review::completed', (event) => {
+      const { url, output_file, success, error } = event.payload;
+      setReviewInProgress(null);
+      if (success) {
+        // Store the output file path with LRU bounding
+        setCompletedReviews((prev) => {
+          const newMap = new Map(prev);
+          if (newMap.size >= MAX_COMPLETED_REVIEWS) {
+            const oldestKey = newMap.keys().next().value;
+            if (oldestKey) newMap.delete(oldestKey);
+          }
+          newMap.set(url, output_file);
+          return newMap;
+        });
+      } else if (error) {
+        console.error('Code review failed:', error);
+      }
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
@@ -129,11 +173,75 @@ export function TodayView({ data, onDataChange, onNavigate, prData }: TodayViewP
 
   // Handle Claude button click for a PR
   const handleCodeReview = async (pr: GitHubPr) => {
+    setReviewInProgress({ url: pr.url, startTime: Date.now() });
     try {
       await invoke('run_code_review', { url: pr.url });
     } catch (err) {
       console.error('Failed to run code review:', err);
+      setReviewInProgress(null);
     }
+  };
+
+  // Open completed review in Obsidian
+  const openReview = (outputFile: string) => {
+    const fileName = outputFile.split('/').pop()?.replace('.md', '') || '';
+    const obsidianUri = `obsidian://open?vault=atul&file=pr-reviews/${fileName}`;
+    window.open(obsidianUri, '_blank');
+  };
+
+  // Render a PR card for TodayView
+  const renderTodayPrCard = (pr: GitHubPr, variant: 'high' | 'approved' | 'needs-attention') => {
+    const isReviewing = reviewInProgress?.url === pr.url;
+    const completedReviewFile = completedReviews.get(pr.url);
+
+    return (
+      <div key={pr.number} className={`today-pr-card ${variant}`}>
+        <button
+          className={`pr-claude-btn ${isReviewing ? 'reviewing' : ''}`}
+          onClick={() => handleCodeReview(pr)}
+          aria-label="Run code review"
+          title={isReviewing ? 'Review in progress...' : 'Run code review'}
+          disabled={isReviewing}
+        >
+          {isReviewing && reviewInProgress ? (
+            <ProgressCircle startTime={reviewInProgress.startTime} size="sm" />
+          ) : (
+            <img src="/claude.png" alt="Claude" className="claude-icon" />
+          )}
+        </button>
+        <div className="today-pr-content">
+          <div className="today-pr-header">
+            <span className="today-pr-title">{pr.title}</span>
+            {completedReviewFile && (
+              <button
+                className="pr-review-link"
+                onClick={() => openReview(completedReviewFile)}
+                title="Open review in Obsidian"
+              >
+                View Review
+              </button>
+            )}
+          </div>
+          <div className="today-pr-meta">
+            <a href={pr.url} target="_blank" rel="noopener noreferrer" className="today-pr-link">
+              #{pr.number}
+            </a>
+            {pr.author && <span className="today-pr-author">by {pr.author}</span>}
+            <span className="today-pr-time">{formatRelativeTime(pr.created_at)}</span>
+          </div>
+          {pr.approvals.length > 0 && (
+            <div className="today-pr-approvals">
+              {pr.approvals.map((approval) => (
+                <span key={approval.username} className="today-pr-approval">
+                  <span className="approval-checkmark">&#10003;</span>
+                  {approval.username}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   };
 
   // Get task count summary
@@ -277,28 +385,7 @@ export function TodayView({ data, onDataChange, onNavigate, prData }: TodayViewP
 
                 {prReviews.highPriority.length > 0 && (
                   <div className="today-pr-list">
-                    {prReviews.highPriority.map((pr) => (
-                      <div key={pr.number} className="today-pr-card high">
-                        <button
-                          className="pr-claude-btn"
-                          onClick={() => handleCodeReview(pr)}
-                          aria-label="Run code review"
-                          title="Run code review in terminal"
-                        >
-                          <img src="/claude.png" alt="Claude" className="claude-icon" />
-                        </button>
-                        <div className="today-pr-content">
-                          <span className="today-pr-title">{pr.title}</span>
-                          <div className="today-pr-meta">
-                            <a href={pr.url} target="_blank" rel="noopener noreferrer" className="today-pr-link">
-                              #{pr.number}
-                            </a>
-                            <span className="today-pr-author">by {pr.author}</span>
-                            <span className="today-pr-time">{formatRelativeTime(pr.created_at)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                    {prReviews.highPriority.map((pr) => renderTodayPrCard(pr, 'high'))}
                   </div>
                 )}
               </div>
@@ -334,37 +421,7 @@ export function TodayView({ data, onDataChange, onNavigate, prData }: TodayViewP
 
                 {myPrs.approved.length > 0 && (
                   <div className="today-pr-list">
-                    {myPrs.approved.map((pr) => (
-                      <div key={pr.number} className="today-pr-card approved">
-                        <button
-                          className="pr-claude-btn"
-                          onClick={() => handleCodeReview(pr)}
-                          aria-label="Run code review"
-                          title="Run code review in terminal"
-                        >
-                          <img src="/claude.png" alt="Claude" className="claude-icon" />
-                        </button>
-                        <div className="today-pr-content">
-                          <span className="today-pr-title">{pr.title}</span>
-                          <div className="today-pr-meta">
-                            <a href={pr.url} target="_blank" rel="noopener noreferrer" className="today-pr-link">
-                              #{pr.number}
-                            </a>
-                            <span className="today-pr-time">{formatRelativeTime(pr.created_at)}</span>
-                          </div>
-                          {pr.approvals.length > 0 && (
-                            <div className="today-pr-approvals">
-                              {pr.approvals.map((approval) => (
-                                <span key={approval.username} className="today-pr-approval">
-                                  <span className="approval-checkmark">&#10003;</span>
-                                  {approval.username}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
+                    {myPrs.approved.map((pr) => renderTodayPrCard(pr, 'approved'))}
                   </div>
                 )}
               </div>
@@ -400,27 +457,7 @@ export function TodayView({ data, onDataChange, onNavigate, prData }: TodayViewP
 
                 {myPrs.changesRequested.length > 0 && (
                   <div className="today-pr-list">
-                    {myPrs.changesRequested.map((pr) => (
-                      <div key={pr.number} className="today-pr-card needs-attention">
-                        <button
-                          className="pr-claude-btn"
-                          onClick={() => handleCodeReview(pr)}
-                          aria-label="Run code review"
-                          title="Run code review in terminal"
-                        >
-                          <img src="/claude.png" alt="Claude" className="claude-icon" />
-                        </button>
-                        <div className="today-pr-content">
-                          <span className="today-pr-title">{pr.title}</span>
-                          <div className="today-pr-meta">
-                            <a href={pr.url} target="_blank" rel="noopener noreferrer" className="today-pr-link">
-                              #{pr.number}
-                            </a>
-                            <span className="today-pr-time">{formatRelativeTime(pr.created_at)}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                    {myPrs.changesRequested.map((pr) => renderTodayPrCard(pr, 'needs-attention'))}
                   </div>
                 )}
               </div>

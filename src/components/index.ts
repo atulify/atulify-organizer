@@ -9,3 +9,4 @@ export { EntryForm } from './EntryForm';
 export { ImageUpload } from './ImageUpload';
 export { ImageLightbox } from './ImageLightbox';
 export { Onboarding } from './Onboarding';
+export { ProgressCircle } from './ProgressCircle';

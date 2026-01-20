@@ -2,10 +2,28 @@ use crate::models::{AppData, GitHubPr, PrApproval};
 use crate::storage;
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
+use tauri::Emitter;
+
+// ============ Code Review Event Payloads ============
+
+#[derive(Clone, Serialize)]
+pub struct CodeReviewStarted {
+    pub url: String,
+    pub repo: String,
+    pub pr_number: String,
+}
+
+#[derive(Clone, Serialize)]
+pub struct CodeReviewCompleted {
+    pub url: String,
+    pub output_file: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
 
 // ============ GH Path Resolution ============
 
@@ -249,8 +267,25 @@ pub fn get_app_data_path() -> Result<String, String> {
     Ok(storage::get_app_dir().to_string_lossy().to_string())
 }
 
+// Simple file logger for debugging production builds
+fn log_debug(msg: &str) {
+    use std::io::Write;
+    let log_path = "/tmp/atulify-debug.log";
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)
+    {
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let _ = writeln!(file, "[{}] {}", timestamp, msg);
+    }
+    eprintln!("{}", msg);
+}
+
 #[tauri::command]
-pub fn run_code_review(url: String) -> Result<(), String> {
+pub async fn run_code_review(app_handle: tauri::AppHandle, url: String) -> Result<(), String> {
+    log_debug(&format!("[Rust] run_code_review called with url: {}", url));
+
     // Extract repo name and PR number from URL (e.g., https://github.com/owner/repo/pull/123)
     let parts: Vec<&str> = url.split('/').collect();
     let (repo_name, pr_number) = if parts.len() >= 2 {
@@ -265,6 +300,8 @@ pub fn run_code_review(url: String) -> Result<(), String> {
         ("repo", "unknown")
     };
 
+    log_debug(&format!("[Rust] Parsed repo: {}, pr: {}", repo_name, pr_number));
+
     // Save to Obsidian vault for proper indexing
     let vault_path = "/Users/atulify/Documents/Obsidian/atul";
     let output_dir = format!("{}/pr-reviews", vault_path);
@@ -272,48 +309,108 @@ pub fn run_code_review(url: String) -> Result<(), String> {
     let output_file = format!("{}/{}.md", output_dir, file_name);
     let obsidian_uri = format!("obsidian://open?vault=atul&file=pr-reviews/{}", file_name);
 
-    let script = format!(
-        r#"tell application "Terminal"
-            set targetWindow to missing value
+    // Clone values for the spawned task
+    let url_clone = url.clone();
+    let output_file_clone = output_file.clone();
 
-            repeat with w in windows
-                try
-                    if name of w contains "Claude Code Review" then
-                        set targetWindow to w
-                        exit repeat
-                    end if
-                end try
-            end repeat
+    log_debug("[Rust] About to emit code-review::started event");
 
-            if targetWindow is not missing value then
-                set index of targetWindow to 1
-                activate
-                delay 0.3
-                tell application "System Events"
-                    tell process "Terminal"
-                        keystroke "t" using command down
-                    end tell
-                end tell
-                delay 0.3
-                do script "mkdir -p \"{output_dir}\" && devx claude -p \"/review {url}\" --max-budget-usd 2.00 | tee \"{output}\" && open \"{obsidian_uri}\"" in front window
-            else
-                activate
-                do script "mkdir -p \"{output_dir}\" && devx claude -p \"/review {url}\" --max-budget-usd 2.00 | tee \"{output}\" && open \"{obsidian_uri}\""
-                delay 0.3
-                set custom title of front window to "Claude Code Review"
-            end if
-        end tell"#,
-        url = url,
-        output_dir = output_dir,
-        output = output_file,
-        obsidian_uri = obsidian_uri
-    );
+    // Emit started event
+    let _ = app_handle.emit("code-review::started", CodeReviewStarted {
+        url: url.clone(),
+        repo: repo_name.to_string(),
+        pr_number: pr_number.to_string(),
+    });
 
-    Command::new("osascript")
-        .arg("-e")
-        .arg(&script)
-        .spawn()
-        .map_err(|e| format!("Failed to open terminal: {}", e))?;
+    log_debug("[Rust] Emitted started event, about to spawn background task");
+
+    // Spawn background task
+    tauri::async_runtime::spawn(async move {
+        log_debug("[Rust:spawn] Background task started");
+
+        // Ensure output directory exists
+        if let Err(e) = std::fs::create_dir_all(&output_dir) {
+            log_debug(&format!("[Rust:spawn] Failed to create output dir: {}", e));
+            let _ = app_handle.emit("code-review::completed", CodeReviewCompleted {
+                url: url_clone,
+                output_file: output_file_clone,
+                success: false,
+                error: Some(format!("Failed to create output directory: {}", e)),
+            });
+            return;
+        }
+
+        log_debug("[Rust:spawn] Output dir created, running devx claude command...");
+
+        // Run the Claude review command - use full path for production builds
+        let devx_path = "/opt/dev/bin/user/devx";
+        let result = Command::new(devx_path)
+            .args(["claude", "-p", &format!("/review {}", url_clone), "--max-budget-usd", "2.00"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output();
+
+        match &result {
+            Ok(output) => {
+                log_debug(&format!("[Rust:spawn] Command completed, status: {:?}", output.status));
+            }
+            Err(e) => {
+                log_debug(&format!("[Rust:spawn] Command failed to execute: {}", e));
+            }
+        }
+
+        match result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                if output.status.success() {
+                    // Write output to file
+                    if let Err(e) = std::fs::write(&output_file_clone, stdout.as_bytes()) {
+                        let _ = app_handle.emit("code-review::completed", CodeReviewCompleted {
+                            url: url_clone,
+                            output_file: output_file_clone,
+                            success: false,
+                            error: Some(format!("Failed to write output file: {}", e)),
+                        });
+                        return;
+                    }
+
+                    // Open Obsidian
+                    let _ = Command::new("open").arg(&obsidian_uri).spawn();
+
+                    // Emit success
+                    let _ = app_handle.emit("code-review::completed", CodeReviewCompleted {
+                        url: url_clone,
+                        output_file: output_file_clone,
+                        success: true,
+                        error: None,
+                    });
+                } else {
+                    // Command failed
+                    let error_msg = if stderr.is_empty() {
+                        format!("Command exited with status: {}", output.status)
+                    } else {
+                        stderr.to_string()
+                    };
+                    let _ = app_handle.emit("code-review::completed", CodeReviewCompleted {
+                        url: url_clone,
+                        output_file: output_file_clone,
+                        success: false,
+                        error: Some(error_msg),
+                    });
+                }
+            }
+            Err(e) => {
+                let _ = app_handle.emit("code-review::completed", CodeReviewCompleted {
+                    url: url_clone,
+                    output_file: output_file_clone,
+                    success: false,
+                    error: Some(format!("Failed to run devx claude: {}", e)),
+                });
+            }
+        }
+    });
 
     Ok(())
 }
@@ -1063,89 +1160,120 @@ pub async fn fetch_github_stats() -> Result<GitHubStats, String> {
         let gh_path = get_gh_path()?;
         let (mtd_start, prev_month_start, prev_month_end, three_months_start, _today) = get_date_ranges();
 
-        let prs_merged_mtd = Command::new(gh_path)
-            .args([
-                "search", "prs",
-                "--repo", REPO,
-                "--author", USER,
-                "--merged",
-                "--merged", &format!(">={}", mtd_start),
-                "--json", "number",
-                "--limit", "200",
-            ])
-            .output()
-            .map(|o| count_prs_from_output(&o))
-            .unwrap_or(0);
+        // Run all 6 queries in parallel using thread scope
+        let (
+            prs_merged_mtd,
+            prs_merged_prev_month,
+            prs_merged_prev_3_months,
+            prs_approved_mtd,
+            prs_approved_prev_month,
+            prs_approved_prev_3_months,
+        ) = std::thread::scope(|s| {
+            let h1 = s.spawn(|| {
+                Command::new(gh_path)
+                    .args([
+                        "search", "prs",
+                        "--repo", REPO,
+                        "--author", USER,
+                        "--merged",
+                        "--merged", &format!(">={}", mtd_start),
+                        "--json", "number",
+                        "--limit", "200",
+                    ])
+                    .output()
+                    .map(|o| count_prs_from_output(&o))
+                    .unwrap_or(0)
+            });
 
-        let prs_merged_prev_month = Command::new(gh_path)
-            .args([
-                "search", "prs",
-                "--repo", REPO,
-                "--author", USER,
-                "--merged",
-                "--merged", &format!("{}..{}", prev_month_start, prev_month_end),
-                "--json", "number",
-                "--limit", "200",
-            ])
-            .output()
-            .map(|o| count_prs_from_output(&o))
-            .unwrap_or(0);
+            let h2 = s.spawn(|| {
+                Command::new(gh_path)
+                    .args([
+                        "search", "prs",
+                        "--repo", REPO,
+                        "--author", USER,
+                        "--merged",
+                        "--merged", &format!("{}..{}", prev_month_start, prev_month_end),
+                        "--json", "number",
+                        "--limit", "200",
+                    ])
+                    .output()
+                    .map(|o| count_prs_from_output(&o))
+                    .unwrap_or(0)
+            });
 
-        let prs_merged_prev_3_months = Command::new(gh_path)
-            .args([
-                "search", "prs",
-                "--repo", REPO,
-                "--author", USER,
-                "--merged",
-                "--merged", &format!(">={}", three_months_start),
-                "--json", "number",
-                "--limit", "200",
-            ])
-            .output()
-            .map(|o| count_prs_from_output(&o))
-            .unwrap_or(0);
+            let h3 = s.spawn(|| {
+                Command::new(gh_path)
+                    .args([
+                        "search", "prs",
+                        "--repo", REPO,
+                        "--author", USER,
+                        "--merged",
+                        "--merged", &format!(">={}", three_months_start),
+                        "--json", "number",
+                        "--limit", "200",
+                    ])
+                    .output()
+                    .map(|o| count_prs_from_output(&o))
+                    .unwrap_or(0)
+            });
 
-        let prs_approved_mtd = Command::new(gh_path)
-            .args([
-                "search", "prs",
-                "--repo", REPO,
-                "--reviewed-by", USER,
-                "--merged",
-                "--merged", &format!(">={}", mtd_start),
-                "--json", "number",
-                "--limit", "200",
-            ])
-            .output()
-            .map(|o| count_prs_from_output(&o))
-            .unwrap_or(0);
+            let h4 = s.spawn(|| {
+                Command::new(gh_path)
+                    .args([
+                        "search", "prs",
+                        "--repo", REPO,
+                        "--reviewed-by", USER,
+                        "--merged",
+                        "--merged", &format!(">={}", mtd_start),
+                        "--json", "number",
+                        "--limit", "200",
+                    ])
+                    .output()
+                    .map(|o| count_prs_from_output(&o))
+                    .unwrap_or(0)
+            });
 
-        let prs_approved_prev_month = Command::new(gh_path)
-            .args([
-                "search", "prs",
-                "--repo", REPO,
-                "--reviewed-by", USER,
-                "--merged",
-                "--merged", &format!("{}..{}", prev_month_start, prev_month_end),
-                "--json", "number",
-                "--limit", "200",
-            ])
-            .output()
-            .map(|o| count_prs_from_output(&o))
-            .unwrap_or(0);
+            let h5 = s.spawn(|| {
+                Command::new(gh_path)
+                    .args([
+                        "search", "prs",
+                        "--repo", REPO,
+                        "--reviewed-by", USER,
+                        "--merged",
+                        "--merged", &format!("{}..{}", prev_month_start, prev_month_end),
+                        "--json", "number",
+                        "--limit", "200",
+                    ])
+                    .output()
+                    .map(|o| count_prs_from_output(&o))
+                    .unwrap_or(0)
+            });
 
-        let prs_approved_prev_3_months = Command::new(gh_path)
-            .args([
-                "search", "prs",
-                "--repo", REPO,
-                "--reviewed-by", USER,
-                "--merged",
-                "--merged", &format!(">={}", three_months_start),
-                "--json", "number",
-                "--limit", "200",
-            ])
-            .output()
-            .map(|o| count_prs_from_output(&o))
-            .unwrap_or(0);
+            let h6 = s.spawn(|| {
+                Command::new(gh_path)
+                    .args([
+                        "search", "prs",
+                        "--repo", REPO,
+                        "--reviewed-by", USER,
+                        "--merged",
+                        "--merged", &format!(">={}", three_months_start),
+                        "--json", "number",
+                        "--limit", "200",
+                    ])
+                    .output()
+                    .map(|o| count_prs_from_output(&o))
+                    .unwrap_or(0)
+            });
+
+            (
+                h1.join().unwrap_or(0),
+                h2.join().unwrap_or(0),
+                h3.join().unwrap_or(0),
+                h4.join().unwrap_or(0),
+                h5.join().unwrap_or(0),
+                h6.join().unwrap_or(0),
+            )
+        });
 
         Ok(GitHubStats {
             prs_merged_mtd,

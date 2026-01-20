@@ -1,0 +1,26 @@
+.progress-circle-svg {
+  display: block;
+}
+
+.progress-circle-ring {
+  stroke-dashoffset: var(--dash-offset-start);
+  animation: progress-fill 120s linear forwards;
+}
+
+/*
+ * Animation: 0-60s fills to 75%, then 60-120s slowly fills to 98%
+ * Using CSS keyframes for reliability in production builds
+ */
+@keyframes progress-fill {
+  0% {
+    stroke-dashoffset: var(--dash-offset-start);
+  }
+  /* At 50% of animation (60s), we're at 75% progress */
+  50% {
+    stroke-dashoffset: calc(var(--circumference) * 0.25);
+  }
+  /* At 100% of animation (120s), we're at 98% progress */
+  100% {
+    stroke-dashoffset: var(--dash-offset-end);
+  }
+}

@@ -420,9 +420,18 @@
   transition: background-color 0.15s ease, transform 0.15s ease;
 }
 
-.today-pr-card .pr-claude-btn:hover {
+.today-pr-card .pr-claude-btn:hover:not(:disabled) {
   background-color: var(--accent-primary);
   transform: scale(1.05);
+}
+
+.today-pr-card .pr-claude-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.8;
+}
+
+.today-pr-card .pr-claude-btn.reviewing {
+  background-color: var(--accent-primary);
 }
 
 .today-pr-card .claude-icon {
@@ -436,14 +445,37 @@
   min-width: 0;
 }
 
+.today-pr-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
 .today-pr-title {
   font-size: var(--text-sm);
   font-weight: var(--font-medium);
   color: var(--text-primary);
-  display: block;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.today-pr-card .pr-review-link {
+  font-size: var(--text-xs);
+  color: var(--accent-primary);
+  background: none;
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.today-pr-card .pr-review-link:hover {
+  background-color: var(--accent-primary);
+  color: white;
 }
 
 .today-pr-meta {
